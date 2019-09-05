@@ -1,15 +1,71 @@
 version: 2
 
 references:
-  container_config: &container_config
+  defaults: &defaults
+    working_directory: ~/parliamentary-questions
+
+# Sets up the docker images and environment variables that we use
+  test_container_config: &test_container_config
     docker:
-      - image: ${ECR_ENDPOINT}/cloud-platform/tools:circleci
+      - image: circleci/ruby:2.5.5-node-browsers-legacy
         environment:
           GITHUB_TEAM_NAME_SLUG: pq-team
           APPLICATION_DEPLOY_NAME: pq
+          RAILS_ENV: test
+          RACK_ENV: test
+          PQ_REST_API_HOST: http://localhost:8888
+          PG_HOST: 127.0.0.1
+          PG_PASSWORD: ""
+          PG_USER: postgres
+          PGUSER: postgres
+          PGHOST: 127.0.0.1
+          POSTGRES_DB: parliamentary-questions_test
+
+      - image: postgres:10
+        environment:
+          PG_PASSWORD: ""
+          PG_USER: postgres
+          POSTGRES_DB: parliamentary-questions_test
+          POSTGRES_USER: postgres
+          PGUSER: postgres
+
+  deploy_container_config: &deploy_container_config
+    docker:
+      - image: ${ECR_ENDPOINT}/cloud-platform/tools:circleci
+
+
+# These are defining the steps which are used below in the jobs
+
+  install_gpg: &install_gpg
+    run:
+      name: Install GPG
+      command: |
+        apk add \
+          --no-cache \
+          --no-progress \
+          gnupg
+
+  configure_gpg: &configure_gpg
+    run:
+      name: Configure GPG
+      command: |
+        echo "${GPG_PRIVATE_KEY}" | base64 -d | gpg --batch --allow-secret-key-import --import
+
+  decrypt_secrets: &decrypt_secrets
+    run:
+      name: Decrypt secrets file
+      command: |
+        gpg --export-ownertrust > /tmp/ownertrust.txt
+        echo $GPG_KEY_ID:1 >> /tmp/ownertrust.txt
+        gpg --import-ownertrust /tmp/ownertrust.txt
+        gpgconf --kill gpg-agent
+        gpg-agent --daemon --allow-preset-passphrase
+        /usr/libexec/gpg-preset-passphrase --preset --passphrase $GPG_PASSPHRASE $GPG_KEY_KEYGRIP_ID
+        git-crypt unlock
+
   build_docker_image: &build_docker_image
     run:
-      name: Build parliamentary-questions docker image
+      name: Build docker image
       command: |
         export BUILD_DATE=$(date -Is) >> $BASH_ENV
         source $BASH_ENV
@@ -18,14 +74,14 @@ references:
           --build-arg COMMIT_ID=${CIRCLE_SHA1} \
           --build-arg BUILD_DATE=${BUILD_DATE} \
           --build-arg BUILD_TAG=${CIRCLE_BRANCH} \
-          -t app \
-          -f docker-ng/Dockerfile \
-          .
+          -f docker-ng/rails/Dockerfile \
+          -t app .
+
   push_docker_image: &push_docker_image
     run:
-      name: Push  parliamentary-questions docker image
+      name: Push docker image
       command: |
-        login="$(aws ecr get-login --region eu-west-1 --no-include-email)"
+        login="$(aws ecr get-login --region eu-west-2 --no-include-email)"
         ${login}
         docker tag app "${ECR_ENDPOINT}/${GITHUB_TEAM_NAME_SLUG}/${CIRCLE_PROJECT_REPONAME}:${CIRCLE_SHA1}"
         docker push "${ECR_ENDPOINT}/${GITHUB_TEAM_NAME_SLUG}/${CIRCLE_PROJECT_REPONAME}:${CIRCLE_SHA1}"
@@ -34,21 +90,140 @@ references:
           docker push "${ECR_ENDPOINT}/${GITHUB_TEAM_NAME_SLUG}/${CIRCLE_PROJECT_REPONAME}:latest"
         fi
 
+  install_bundler: &install_bundler
+    run:
+      name: Install bundler
+      command: |
+        gem install bundler -v 2.0.2
+
+  check_bundler_version: &check_bundler_version
+    run:
+      name: Check the installed version of bundler
+      command: |
+        bundle -v
+
+  set_up_aws_cli: &set_up_aws_cli
+    run:
+      # this is needed to get a token from the cloud platform to use kubernetes
+      name: Set up AWS CLI
+      command: |
+        sudo apt-get update
+        sudo apt-get --assume-yes install python3-pip
+        sudo pip3 install awscli
+
+  restore_cache: &restore_cache
+    restore_cache:
+      keys:
+        - parliamentary-questions-{{ checksum "Gemfile.lock" }}
+        # fallback to using the latest cache if no exact match is found
+        - parliamentary-questions-
+
+  install_dependencies: &install_dependencies
+    run:
+      name: Install dependencies
+      command: |
+        if [ "${CIRCLE_NODE_INDEX}" == "0" ]; then
+          bundle check --path vendor/bundle || bundle install --path vendor/bundle && bundle clean
+        fi
+
+  save_cache: &save_cache
+    save_cache:
+      key: parliamentary-questions-{{ checksum "Gemfile.lock" }}
+      paths:
+        - vendor/bundle
+
+  wait_for_db: &wait_for_db
+    run:
+      name: Wait for DB
+      command: dockerize -wait tcp://localhost:5432 -timeout 1m
+
+  set_up_the_database: &set_up_the_database
+    run:
+      name: Set up the database
+      command: |
+        bundle exec rake db:setup
+
+  rubocop: &rubocop
+    run:
+      name: Run rubocop
+      command: bundle exec rubocop
+
+  run_unit_tests: &run_unit_tests
+    run:
+      name: Run unit tests
+      command: |
+        bundle exec rspec
+# This command is from the CircleCI docs and is for running in a time
+# base system. We currenly are not using it, but here if we want to
+# implement it
+#
+# bundle exec rspec --profile 10 \
+#                   --format RspecJunitFormatter \
+#                   --out test_results/rspec.xml \
+#                   --format progress \
+#                   $(circleci tests glob "spec/**/*_spec.rb" | circleci tests split --split-by=timings)
+  run_feature_tests: &run_feature_tests
+    run:
+      name: Run feature tests
+      command: |
+        bundle exec rspec features
+
+  deploy_to_dev: &deploy_to_dev
+    run:
+      name: Deploy to dev environment
+      command: |
+        setup-kube-auth
+        kubectl config use-context development
+        sed -i -e s/:latest/:$CIRCLE_SHA1/ k8s-deploy/development/deployment.yaml
+        kubectl apply --record=false -f ./k8s-deploy/development/
+
+#  These are the jobs which run the steps. The jobs are used by the workflows.
+
 jobs:
-  build:
-    <<: *container_config
+  build_and_test:
+    <<: *test_container_config
+    <<: *defaults
     steps:
       - checkout
       - setup_remote_docker:
           docker_layer_caching: true
+      - *restore_cache
+      - *install_bundler
+      - *check_bundler_version
+      - *set_up_aws_cli
       - *build_docker_image
       - *push_docker_image
+      - *install_dependencies
+      - *save_cache
+      - *wait_for_db
+      - *set_up_the_database
+      - *rubocop
+      - *run_unit_tests
+      - *run_feature_tests
+
+
+  deploy_to_dev:
+    <<: *deploy_container_config
+    <<: *defaults
+    steps:
+      - checkout
+      - attach_workspace:
+          at: ~/repo
+      - *install_gpg
+      - *configure_gpg
+      - *decrypt_secrets
+      - *deploy_to_dev
+
+#  Workflows combine jobs to perform the actions
 
 workflows:
   version: 2
-  build-and-deploy-dev:
+  build_and_run_tests:
     jobs:
-      - build
-      - dev_deploy:
+      - build_and_test
+      - deploy_to_dev:
           requires:
-            - build
+            - build_and_test
+          filters:
+            branches:
+              only: master

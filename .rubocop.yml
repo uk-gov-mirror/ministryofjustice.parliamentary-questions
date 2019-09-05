@@ -5,6 +5,8 @@ AllCops:
 
   Exclude:
     - db/schema.rb # Because it's generated.
+    - vendor / ** / * # this prevents version mismatch in circleci
+    - vendor/bundle/**/* # this prevents rubocop being run on dependencies in circleci
 
 # Bundler Cops ============================================================================
 
@@ -289,6 +291,12 @@ Style/IfUnlessModifier:
 
 Style/ImplicitRuntimeError:
   Description: 'This cop checks for raise or fail statements which do not specify an explicit exception class.'
+  Enabled: false
+
+# added in due to the need to hardcode IP addresses for kubernetes
+# maybe we can avoid havingto disable this cop by using an env variable?
+Style/IpAddresses:
+  Description: 'This cop checks for hardcoded IP adressed which can make the code brittle to change'
   Enabled: false
 
 Style/MethodCalledOnDoEndBlock:

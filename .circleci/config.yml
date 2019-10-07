@@ -260,7 +260,9 @@ workflows:
   build_and_run_tests:
     jobs:
       - install_dependencies
-      - build_and_push_docker_image
+      - build_and_push_docker_image:
+          requires:
+            - install_dependencies
       - run_unit_tests:
           requires:
             - install_dependencies

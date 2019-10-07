@@ -95,6 +95,7 @@ references:
     run:
       name: Install bundler
       command: |
+        gem uninstall bundler
         gem install bundler -v 2.0.2
 
   check_bundler_version: &check_bundler_version
@@ -216,7 +217,7 @@ jobs:
           root: .
           paths:
             - vendor/bundle
-            
+
   build_and_push_docker_image:
     <<: *test_container_config
     <<: *defaults
@@ -230,6 +231,7 @@ jobs:
       - *build_docker_image
       - *push_docker_image
       - *wait_for_db
+      - *check_bundler_version
       - *set_up_the_database
 
   run_unit_tests:
@@ -240,6 +242,7 @@ jobs:
       - attach_workspace:
           at: ~/repo
       - *restore_cache
+      - *check_bundler_version
       - run: bundle --path vendor/bundle
       - *run_unit_tests
 
@@ -250,6 +253,7 @@ jobs:
       - checkout
       - attach_workspace:
           at: ~/repo
+      - *check_bundler_version
       - *run_feature_tests
 
   deploy_to_dev_environment:

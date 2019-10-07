@@ -231,8 +231,6 @@ jobs:
       - *check_bundler_version
       - *build_docker_image
       - *push_docker_image
-      - *wait_for_db
-      - *set_up_the_database
 
   run_unit_tests:
     <<: *test_container_config
@@ -244,6 +242,7 @@ jobs:
       - *restore_cache
       - *install_bundler
       - *check_bundler_version
+      - *set_up_the_database
       - run: bundle --path vendor/bundle
       - *run_unit_tests
 

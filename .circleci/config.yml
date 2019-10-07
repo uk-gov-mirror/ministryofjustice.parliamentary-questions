@@ -20,6 +20,7 @@ references:
           PGUSER: postgres
           PGHOST: 127.0.0.1
           POSTGRES_DB: parliamentary-questions_test
+          BUNDLER_VERSION: 2.0.2
 
       - image: postgres:10
         environment:
@@ -211,7 +212,11 @@ jobs:
       - *install_dependencies
       - *save_cache
       - *rubocop
-
+      - persist_to_workspace:
+          root: .
+          paths:
+            - vendor/bundle
+            
   build_and_push_docker_image:
     <<: *test_container_config
     <<: *defaults
@@ -235,7 +240,7 @@ jobs:
       - attach_workspace:
           at: ~/repo
       - *restore_cache
-      - run: bundle _2.0.2_ --path vendor/bundle
+      - run: bundle --path vendor/bundle
       - *run_unit_tests
 
   run_feature_tests:

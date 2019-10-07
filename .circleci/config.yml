@@ -210,7 +210,6 @@ jobs:
       - *check_bundler_version
       - *install_dependencies
       - *save_cache
-      - *set_up_aws_cli
       - *rubocop
 
   build_and_push_docker_image:
@@ -222,6 +221,7 @@ jobs:
           docker_layer_caching: true
       - attach_workspace:
           at: ~/repo
+      - *set_up_aws_cli
       - *build_docker_image
       - *push_docker_image
       - *wait_for_db
@@ -232,6 +232,10 @@ jobs:
     <<: *defaults
     steps:
       - checkout
+      - attach_workspace:
+          at: ~/repo
+      - *restore_cache
+      - run: bundle _2.0.2_ --path vendor/bundle
       - *run_unit_tests
 
   run_feature_tests:
@@ -239,6 +243,8 @@ jobs:
     <<: *defaults
     steps:
       - checkout
+      - attach_workspace:
+          at: ~/repo
       - *run_feature_tests
 
   deploy_to_dev_environment:

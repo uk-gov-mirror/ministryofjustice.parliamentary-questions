@@ -168,7 +168,7 @@ references:
       command: |
         bundle exec rspec features
 
-  deploy_to_dev: &deploy_to_dev
+  deploy_to_dev_environment: &deploy_to_dev_environment
     run:
       name: Deploy to dev environment
       command: |
@@ -198,7 +198,22 @@ references:
 #  These are the jobs which run the steps. The jobs are used by the workflows.
 
 jobs:
-  build_and_test:
+  install_dependencies:
+    <<: *test_container_config
+    <<: *defaults
+    steps:
+      - checkout
+      - attach_workspace:
+          at: ~/repo
+      - *restore_cache
+      - *install_bundler
+      - *check_bundler_version
+      - *install_dependencies
+      - *save_cache
+      - *set_up_aws_cli
+      - *rubocop
+
+  build_and_push_docker_image:
     <<: *test_container_config
     <<: *defaults
     steps:
@@ -207,21 +222,26 @@ jobs:
           docker_layer_caching: true
       - attach_workspace:
           at: ~/repo
-      - *restore_cache
-      - *install_bundler
-      - *check_bundler_version
-      - *set_up_aws_cli
       - *build_docker_image
       - *push_docker_image
-      - *install_dependencies
-      - *save_cache
       - *wait_for_db
       - *set_up_the_database
-      - *rubocop
+
+  run_unit_tests:
+    <<: *test_container_config
+    <<: *defaults
+    steps:
+      - checkout
       - *run_unit_tests
+
+  run_feature_tests:
+    <<: *test_container_config
+    <<: *defaults
+    steps:
+      - checkout
       - *run_feature_tests
 
-  deploy_to_dev:
+  deploy_to_dev_environment:
     <<: *deploy_container_config
     <<: *defaults
     steps:
@@ -231,7 +251,7 @@ jobs:
       - *install_gpg
       - *configure_gpg
       - *decrypt_secrets
-      - *deploy_to_dev
+      - *deploy_to_dev_environment
 
 #  Workflows combine jobs to perform the actions
 
@@ -239,17 +259,27 @@ workflows:
   version: 2
   build_and_run_tests:
     jobs:
-      - build_and_test
-      - deploy_to_dev:
+      - install_dependencies
+      - build_and_push_docker_image
+      - run_unit_tests:
           requires:
-            - build_and_test
+            - install_dependencies
+      - run_feature_tests:
+          requires:
+            - install_dependencies
+      - deploy_to_dev_environment:
+          requires:
+            - install_dependencies
+            - build_and_push_docker_image
+            - run_unit_tests
+            - run_feature_tests
           filters:
             branches:
               only: master
       # - deploy_staging_approval:
       #     type: approval
       #     requires:
-      #       - build_and_test
+      #       - run_feature_tests
       #     filters:
       #       branches:
       #         only: master
@@ -262,7 +292,7 @@ workflows:
       # - deploy_production_approval:
       #     type: approval
       #     requires:
-      #       - build_and_test
+      #       - run_feature_tests
       #     filters:
       #       branches:
       #         only: master

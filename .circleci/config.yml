@@ -95,7 +95,6 @@ references:
     run:
       name: Install bundler
       command: |
-        gem uninstall bundler
         gem install bundler -v 2.0.2
 
   check_bundler_version: &check_bundler_version
@@ -148,7 +147,7 @@ references:
   rubocop: &rubocop
     run:
       name: Run rubocop
-      command: bundler exec rubocop
+      command: bundle exec rubocop
 
   run_unit_tests: &run_unit_tests
     run:
@@ -228,10 +227,11 @@ jobs:
       - attach_workspace:
           at: ~/repo
       - *set_up_aws_cli
+      - *install_bundler
+      - *check_bundler_version
       - *build_docker_image
       - *push_docker_image
       - *wait_for_db
-      - *check_bundler_version
       - *set_up_the_database
 
   run_unit_tests:
@@ -242,6 +242,7 @@ jobs:
       - attach_workspace:
           at: ~/repo
       - *restore_cache
+      - *install_bundler
       - *check_bundler_version
       - run: bundle --path vendor/bundle
       - *run_unit_tests
@@ -253,6 +254,7 @@ jobs:
       - checkout
       - attach_workspace:
           at: ~/repo
+      - *install_bundler
       - *check_bundler_version
       - *run_feature_tests
 

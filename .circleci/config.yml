@@ -232,7 +232,7 @@ jobs:
       - *build_docker_image
       - *push_docker_image
 
-  run_unit_tests:
+  run_tests:
     <<: *test_container_config
     <<: *defaults
     steps:
@@ -245,16 +245,6 @@ jobs:
       - *set_up_the_database
       - run: bundle --path vendor/bundle
       - *run_unit_tests
-
-  run_feature_tests:
-    <<: *test_container_config
-    <<: *defaults
-    steps:
-      - checkout
-      - attach_workspace:
-          at: ~/repo
-      - *install_bundler
-      - *check_bundler_version
       - *run_feature_tests
 
   deploy_to_dev_environment:
@@ -289,8 +279,7 @@ workflows:
           requires:
             - install_dependencies
             - build_and_push_docker_image
-            - run_unit_tests
-            - run_feature_tests
+            - run_tests
           filters:
             branches:
               only: master

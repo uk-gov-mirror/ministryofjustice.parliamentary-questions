@@ -46,7 +46,7 @@ ADD ./ /usr/src/app
 
 RUN gem install bundler -v 2.0.2
 COPY Gemfile Gemfile.lock ./
-RUN bundle install
+RUN bundle config --global frozen 1 && bundle install
 COPY . .
 
 RUN cd /usr/src/app  && \
